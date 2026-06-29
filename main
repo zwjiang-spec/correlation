@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>相關係數階梯挑戰賽</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #eef2f7;
+            color: #333;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+            padding: 20px;
+        }
+        .game-container {
+            background-color: white;
+            padding: 25px;
+            border-radius: 16px;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.08);
+            text-align: center;
+            max-width: 600px;
+            width: 100%;
+        }
+        h1 {
+            margin-top: 0;
+            color: #2c3e50;
+            font-size: 1.8rem;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            background-color: #f8f9fa;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            font-size: 1.05rem;
+            font-weight: bold;
+            text-align: left;
+        }
+        .stat-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 2px 10px;
+        }
+        .lives {
+            color: #e74c3c;
+        }
+        .level-badge {
+            color: #9b59b6;
+        }
+        .tolerance-badge {
+            color: #e67e22;
+        }
+        canvas {
+            background-color: #fafafa;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            width: 100%;
+            max-width: 500px;
+        }
+        .controls {
+            margin-bottom: 15px;
+        }
+        .controls p {
+            font-weight: bold;
+            color: #34495e;
+            margin: 5px 0 10px 0;
+        }
+        input[type="number"] {
+            width: 50%;
+            padding: 10px;
+            font-size: 1.3rem;
+            text-align: center;
+            border: 2px solid #3498db;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            transition: all 0.3s;
+        }
+        input[type="number"]:focus {
+            outline: none;
+            border-color: #2980b9;
+            box-shadow: 0 0 8px rgba(41, 128, 185, 0.4);
+        }
+        button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            font-size: 1.1rem;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.3s;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        button:disabled {
+            background-color: #bdc3c7;
+            cursor: not-allowed;
+        }
+        #result-msg {
+            font-size: 1.15rem;
+            font-weight: bold;
+            margin: 15px 0;
+            min-height: 40px;
+            line-height: 1.5;
+        }
+        .success { color: #27ae60; }
+        .danger { color: #e74c3c; }
+        .levelup-text {
+            color: #9b59b6;
+            font-size: 1.3rem;
+            display: block;
+            margin-top: 5px;
+            animation: bounce 0.5s infinite alternate;
+        }
+        @keyframes bounce {
+            from { transform: translateY(0); }
+            to { transform: translateY(-5px); }
+        }
+        #next-btn, #restart-btn {
+            display: none;
+            margin: 0 auto;
+        }
+        #restart-btn {
+            background-color: #e67e22;
+        }
+        #restart-btn:hover {
+            background-color: #d35400;
+        }
+        .rules {
+            font-size: 0.85rem;
+            color: #7f8c8d;
+            margin-bottom: 15px;
+            line-height: 1.4;
+        }
+    </style>
+</head>
+<body>
+
+<div class="game-container">
+    <h1>📈 相關係數階梯挑戰賽</h1>
+    <p class="rules">觀察散布圖並輸入 r 值 (-1.00 ~ 1.00)。支援 Enter 鍵送出。<br>分數越高關卡越難，容許誤差會大幅縮小！扣完三條血即結束。</p>
+    
+    <div class="stats-grid">
+        <div class="stat-item">當前關卡: <span id="level-val" class="level-badge">1</span></div>
+        <div class="stat-item">目前分數: <span id="score-val">0</span></div>
+        <div class="stat-item">晉級目標: <span id="target-val">200 分</span></div>
+        <div class="stat-item">容許誤差: <span id="tolerance-val" class="tolerance-badge">±0.20</span></div>
+        <div class="stat-item" style="grid-column: span 2; justify-content: center;">
+            生命值:&nbsp;<span id="lives-val" class="lives">❤️❤️❤️</span>
+        </div>
+    </div>
+
+    <canvas id="plotCanvas" width="500" height="400"></canvas>
+
+    <div id="game-area">
+        <div class="controls">
+            <p>請輸入你的猜測：</p>
+            <input type="number" id="guess-input" min="-1" max="1" step="0.01" placeholder="例如：-0.65" autocomplete="off">
+        </div>
+        <button id="submit-btn" onclick="submitGuess()">確認答案</button>
+    </div>
+
+    <div id="result-msg"></div>
+    <button id="next-btn" onclick="nextRound()">下一題 (Enter)</button>
+    <button id="restart-btn" onclick="initGame()">重新挑戰</button>
+</div>
+
+<script>
+    let currentR = 0;
+    let score = 0;
+    let lives = 3;
+    
+    // 關卡動態設定
+    let currentLevel = 1;
+    let currentTolerance = 0.20;
+
+    const guessInput = document.getElementById('guess-input');
+    const scoreDisplay = document.getElementById('score-val');
+    const livesDisplay = document.getElementById('lives-val');
+    const levelDisplay = document.getElementById('level-val');
+    const targetDisplay = document.getElementById('target-val');
+    const toleranceDisplay = document.getElementById('tolerance-val');
+    
+    const resultMsg = document.getElementById('result-msg');
+    const submitBtn = document.getElementById('submit-btn');
+    const nextBtn = document.getElementById('next-btn');
+    const restartBtn = document.getElementById('restart-btn');
+    const gameArea = document.getElementById('game-area');
+    const canvas = document.getElementById('plotCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // 鍵盤事件監聽
+    guessInput.addEventListener('keypress', function (e) {
+        if (e.key === 'Enter' && !submitBtn.disabled && submitBtn.style.display !== 'none') {
+            submitGuess();
+        }
+    });
+
+    document.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter' && nextBtn.style.display === 'block') {
+            nextRound();
+        }
+    });
+
+    // Box-Muller 轉換：常態分配隨機數
+    function randn_bm() {
+        let u = 0, v = 0;
+        while(u === 0) u = Math.random();
+        while(v === 0) v = Math.random();
+        return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+    }
+
+    // 繪製散布圖
+    function drawPlot(r) {
+        const width = canvas.width;
+        const height = canvas.height;
+        ctx.clearRect(0, 0, width, height);
+
+        // 畫十字中心軸
+        ctx.strokeStyle = '#e8e8e8';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(0, height / 2); ctx.lineTo(width, height / 2);
+        ctx.moveTo(width / 2, 0); ctx.lineTo(width / 2, height);
+        ctx.stroke();
+
+        // 根據關卡改變點的顏色，增加視覺變化
+        const colors = ['rgba(41, 128, 185, 0.6)', 'rgba(39, 174, 96, 0.6)', 'rgba(155, 89, 182, 0.6)', 'rgba(211, 84, 0, 0.6)'];
+        ctx.fillStyle = colors[currentLevel - 1] || colors[3];
+        
+        // 繪製 200 個數據點
+        for (let i = 0; i < 200; i++) {
+            let x = randn_bm();
+            let z = randn_bm();
+            let y = r * x + Math.sqrt(1 - r * r) * z;
+
+            let px = (x + 3) / 6 * width;
+            let py = (-y + 3) / 6 * height;
+
+            ctx.beginPath();
+            ctx.arc(px, py, 4.5, 0, 2 * Math.PI);
+            ctx.fill();
+        }
+    }
+
+    // 遊戲初始化
+    function initGame() {
+        score = 0;
+        lives = 3;
+        currentLevel = 1;
+        currentTolerance = 0.20;
+        
+        gameArea.style.display = 'block';
+        restartBtn.style.display = 'none';
+        resultMsg.innerHTML = '';
+        updateStats();
+        nextRound();
+    }
+
+    // 下一回合
+    function nextRound() {
+        currentR = Math.round((Math.random() * 2 - 1) * 100) / 100;
+        drawPlot(currentR);
+        
+        guessInput.value = '';
+        guessInput.disabled = false;
+        guessInput.focus();
+        
+        submitBtn.disabled = false;
+        submitBtn.style.display = 'inline-block';
+        nextBtn.style.display = 'none';
+        resultMsg.innerHTML = '';
+    }
+
+    // 檢查並更新關卡難度
+    function checkLevelProgress() {
+        let oldLevel = currentLevel;
+        
+        if (score >= 900) {
+            currentLevel = 4;
+            currentTolerance = 0.04;
+            targetDisplay.textContent = "無上限 (極限挑戰)";
+        } else if (score >= 500) {
+            currentLevel = 3;
+            currentTolerance = 0.08;
+            targetDisplay.textContent = "900 分";
+        } else if (score >= 200) {
+            currentLevel = 2;
+            currentTolerance = 0.13;
+            targetDisplay.textContent = "500 分";
+        } else {
+            currentLevel = 1;
+            currentTolerance = 0.20;
+            targetDisplay.textContent = "200 分";
+        }
+
+        levelDisplay.textContent = currentLevel;
+        toleranceDisplay.textContent = `±${currentTolerance.toFixed(2)}`;
+
+        // 回傳是否晉級，用來觸發特效文字
+        return currentLevel > oldLevel;
+    }
+
+    // 提交猜測
+    function submitGuess() {
+        const rawValue = guessInput.value;
+        
+        if (rawValue === '' || isNaN(rawValue) || rawValue < -1 || rawValue > 1) {
+            resultMsg.innerHTML = `<span class="danger">⚠️ 請輸入介於 -1.00 到 1.00 之間的數字！</span>`;
+            return;
+        }
+
+        const guess = parseFloat(rawValue);
+        const diff = Math.abs(guess - currentR);
+        
+        guessInput.disabled = true;
+        submitBtn.style.display = 'none';
+
+        let isLevelUp = false;
+
+        if (diff <= currentTolerance) {
+            // 根據當前關卡的 tolerance 等比例計算分數（難度越高，精準猜對的分數越驚人）
+            let points = Math.floor((currentTolerance - diff) / currentTolerance * 100);
+            if(points < 15) points = 15; // 保底 15 分
+            score += points;
+            
+            // 計算完分數後，檢查有沒有升級
+            isLevelUp = checkLevelProgress();
+
+            resultMsg.innerHTML = `<span class="success">🎯 答對了！真實 r = ${currentR.toFixed(2)} (誤差 ${diff.toFixed(2)})，獲得 ${points} 分！</span>`;
+            if (isLevelUp) {
+                resultMsg.innerHTML += `<span class="levelup-text">🎉 恭喜晉級至 Level ${currentLevel}！難度提升！</span>`;
+            }
+        } else {
+            lives--;
+            resultMsg.innerHTML = `<span class="danger">❌ 差太多了！真實 r = ${currentR.toFixed(2)} (誤差 ${diff.toFixed(2)})，扣 1 條血！</span>`;
+        }
+
+        updateStats();
+
+        if (lives > 0) {
+            nextBtn.style.display = 'block';
+            nextBtn.focus();
+        } else {
+            gameOver();
+        }
+    }
+
+    // 更新介面文字
+    function updateStats() {
+        scoreDisplay.textContent = score;
+        let hearts = '';
+        for(let i = 0; i < lives; i++) hearts += '❤️';
+        for(let i = lives; i < 3; i++) hearts += '🖤';
+        livesDisplay.textContent = hearts;
+        checkLevelProgress(); // 確保重設或扣血時看板資訊正確
+    }
+
+    // 遊戲結束
+    function gameOver() {
+        gameArea.style.display = 'none';
+        nextBtn.style.display = 'none';
+        resultMsg.innerHTML = `<span class="danger">💀 遊戲結束！您最終止步於 Level ${currentLevel}，總得分為 ${score} 分。</span>`;
+        restartBtn.style.display = 'block';
+        restartBtn.focus();
+    }
+
+    window.onload = initGame;
+</script>
+
+</body>
+</html>
